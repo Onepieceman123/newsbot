@@ -172,37 +172,50 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @tasks.loop(minutes=1)
 async def post_news():
-    now = datetime.now(timezone.utc)
-    for guild in bot.guilds:
-        gid = str(guild.id)
-        config = server_configs.get(gid, {})
-        api_key = config.get("api_key")
-        channel_id = config.get("channel_id")
-        category = config.get("category", "technology")
-        interval_hours = float(config.get("interval_hours", 1.0))
-        last_posted = config.get("last_posted", 0)
-        if not api_key or not channel_id:
-            continue
-        if (now.timestamp() - last_posted) / 3600 < interval_hours:
-            continue
-        channel = bot.get_channel(int(channel_id))
-        if channel is None:
-            continue
-        articles = await fetch_news(api_key, category)
-        guild_seen = set(seen_articles.get(gid, []))
-        embeds_to_send = []
-        for article in articles:
-            url = article.get("url")
-            if not url or url in guild_seen:
-                continue
-            guild_seen.add(url)
-            embeds_to_send.append(build_embed(article, category))
-        for embed in embeds_to_send:
-            await channel.send(embed=embed)
-        seen_articles[gid] = list(guild_seen)[-500:]
-        save_seen(seen_articles)
-        set_config(guild.id, "last_posted", now.timestamp())
-        print(f"[Bot] {guild.name} → {len(embeds_to_send)} article(s)")
+    try:
+        now = datetime.now(timezone.utc)
+        for guild in bot.guilds:
+            try:
+                gid = str(guild.id)
+                config = server_configs.get(gid, {})
+                api_key = config.get("api_key")
+                channel_id = config.get("channel_id")
+                category = config.get("category", "technology")
+                interval_hours = float(config.get("interval_hours", 1.0))
+                last_posted = config.get("last_posted", 0)
+                if not api_key or not channel_id:
+                    continue
+                if (now.timestamp() - last_posted) / 3600 < interval_hours:
+                    continue
+                channel = bot.get_channel(int(channel_id))
+                if channel is None:
+                    print(f"[Bot] Channel not found for {guild.name}")
+                    continue
+                articles = await fetch_news(api_key, category)
+                guild_seen = set(seen_articles.get(gid, []))
+                embeds_to_send = []
+                for article in articles:
+                    url = article.get("url")
+                    if not url or url in guild_seen:
+                        continue
+                    guild_seen.add(url)
+                    embeds_to_send.append(build_embed(article, category))
+                for embed in embeds_to_send:
+                    await channel.send(embed=embed)
+                seen_articles[gid] = list(guild_seen)[-500:]
+                save_seen(seen_articles)
+                set_config(guild.id, "last_posted", now.timestamp())
+                print(f"[Bot] {guild.name} → {len(embeds_to_send)} article(s)")
+            except Exception as e:
+                print(f"[Bot] Error in guild {guild.name}: {e}")
+    except Exception as e:
+        print(f"[Bot] Loop error: {e}")
+
+
+@post_news.error
+async def post_news_error(error):
+    print(f"[Bot] Task error (restarting): {error}")
+    post_news.restart()
 
 
 @post_news.before_loop
@@ -275,6 +288,8 @@ async def post_interval(interaction: discord.Interaction, channel: discord.TextC
     set_config(interaction.guild.id, "channel_id", channel.id)
     set_config(interaction.guild.id, "category", category)
     set_config(interaction.guild.id, "interval_hours", hours_float)
+    # Reset last_posted so it posts immediately on next loop
+    set_config(interaction.guild.id, "last_posted", 0)
     emoji = CATEGORY_EMOJIS[category]
     await interaction.response.send_message(
         f"✅ All set!\n📢 Channel: {channel.mention}\n{emoji} Category: **{category}**\n⏱️ Every **{format_hours(hours_float)}**",
