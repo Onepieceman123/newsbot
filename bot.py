@@ -89,7 +89,19 @@ CATEGORY_EMOJIS = {
 }
 
 VALID_CATEGORIES = list(CATEGORY_COLORS.keys())
-INTERVAL_CHOICES = [15, 30, 60, 120, 360, 720, 1440]
+
+
+def format_hours(hours: float) -> str:
+    if hours < 1:
+        minutes = round(hours * 60)
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    elif hours == int(hours):
+        h = int(hours)
+        return f"{h} hour{'s' if h != 1 else ''}"
+    else:
+        h = int(hours)
+        minutes = round((hours - h) * 60)
+        return f"{h}h {minutes}m"
 
 
 async def category_autocomplete(interaction: discord.Interaction, current: str):
@@ -97,23 +109,6 @@ async def category_autocomplete(interaction: discord.Interaction, current: str):
         discord.app_commands.Choice(name=label, value=value)
         for label, value in CATEGORIES.items()
         if current.lower() in label.lower() or current.lower() in value.lower()
-    ]
-
-
-async def interval_autocomplete(interaction: discord.Interaction, current: str):
-    labels = {
-        15:   "Every 15 minutes",
-        30:   "Every 30 minutes",
-        60:   "Every 1 hour",
-        120:  "Every 2 hours",
-        360:  "Every 6 hours",
-        720:  "Every 12 hours",
-        1440: "Every 24 hours",
-    }
-    return [
-        discord.app_commands.Choice(name=label, value=str(minutes))
-        for minutes, label in labels.items()
-        if current in str(minutes) or current.lower() in label.lower()
     ]
 
 
@@ -157,11 +152,12 @@ async def post_news():
         api_key = config.get("api_key")
         channel_id = config.get("channel_id")
         category = config.get("category", "technology")
-        interval = int(config.get("interval", 60))
+        interval_hours = float(config.get("interval_hours", 1.0))
         last_posted = config.get("last_posted", 0)
         if not api_key or not channel_id:
             continue
-        if (now.timestamp() - last_posted) / 60 < interval:
+        hours_since = (now.timestamp() - last_posted) / 3600
+        if hours_since < interval_hours:
             continue
         channel = bot.get_channel(int(channel_id))
         if channel is None:
@@ -197,7 +193,7 @@ async def slash_help(interaction: discord.Interaction):
     embed = discord.Embed(title="📰 News Bot — Help", description="Here's everything you can do!", color=discord.Color.blurple())
     embed.add_field(name="📋 General", value="`/help` — This menu\n`/news` — Get latest news now\n`/categories` — See all news topics", inline=False)
     embed.add_field(name="⚙️ Setup (Owner Only)", value="`/setup apikey` — Set your NewsAPI key\n`/setup channel` — Set news channel\n`/setup category` — Set news topic\n`/setup status` — Check settings", inline=False)
-    embed.add_field(name="📬 Posting (Owner Only)", value="`/post now` — Post news immediately\n`/post interval` — Set auto-post frequency", inline=False)
+    embed.add_field(name="📬 Posting (Owner Only)", value="`/post now` — Post news immediately\n`/post interval` — Set auto-post frequency in hours", inline=False)
     embed.add_field(name="🔑 Need a NewsAPI key?", value="Get one free at https://newsapi.org/register", inline=False)
     embed.set_footer(text="Only server owners can use setup & post commands")
     await interaction.response.send_message(embed=embed)
@@ -272,18 +268,24 @@ async def post_now(interaction: discord.Interaction, category: str = None, chann
     await interaction.followup.send(f"✅ Posted **{sent}** new article(s) to {ch.mention}!", ephemeral=True)
 
 
-@post_group.command(name="interval", description="Set how often news is automatically posted")
-@discord.app_commands.autocomplete(every=interval_autocomplete)
-async def post_interval(interaction: discord.Interaction, every: str):
+@post_group.command(name="interval", description="Set how often news is posted — type any number in hours (e.g. 1.5 = 1hr 30min)")
+async def post_interval(interaction: discord.Interaction, hours: float):
     if not is_owner(interaction):
         await interaction.response.send_message("❌ Only the server owner can do this.", ephemeral=True)
         return
-    if not every.isdigit() or int(every) not in INTERVAL_CHOICES:
-        await interaction.response.send_message("❌ Invalid interval. Pick from the dropdown!", ephemeral=True)
+    if hours < 0.083 or hours > 168:
+        await interaction.response.send_message(
+            "❌ Please enter a value between **0.083** (5 minutes) and **168** (1 week).\n"
+            "Examples: `0.5` = 30 min, `1` = 1 hour, `6` = 6 hours, `24` = 1 day",
+            ephemeral=True
+        )
         return
-    set_config(interaction.guild.id, "interval", int(every))
-    labels = {15: "15 minutes", 30: "30 minutes", 60: "1 hour", 120: "2 hours", 360: "6 hours", 720: "12 hours", 1440: "24 hours"}
-    await interaction.response.send_message(f"⏱️ News will now be posted every **{labels[int(every)]}**!", ephemeral=True)
+    set_config(interaction.guild.id, "interval_hours", hours)
+    await interaction.response.send_message(
+        f"⏱️ News will now be posted every **{format_hours(hours)}**!\n"
+        f"💡 Tip: Use decimals for custom times — e.g. `1.5` = 1hr 30min, `0.25` = 15min",
+        ephemeral=True
+    )
 
 
 bot.tree.add_command(post_group)
@@ -338,13 +340,12 @@ async def setup_status(interaction: discord.Interaction):
     channel_id = config.get("channel_id")
     category = config.get("category", "Not set")
     api_key = config.get("api_key")
-    interval = config.get("interval", 60)
-    labels = {15: "15 min", 30: "30 min", 60: "1 hour", 120: "2 hours", 360: "6 hours", 720: "12 hours", 1440: "24 hours"}
+    interval_hours = float(config.get("interval_hours", 1.0))
     embed = discord.Embed(title="⚙️ News Bot Configuration", color=discord.Color.blurple())
     embed.add_field(name="📢 Channel", value=f"<#{channel_id}>" if channel_id else "❌ Not set — use `/setup channel`", inline=False)
     embed.add_field(name="🗂️ Category", value=f"{CATEGORY_EMOJIS.get(category, '')} {category}" if category in CATEGORY_EMOJIS else "❌ Not set", inline=False)
     embed.add_field(name="🔑 API Key", value="✅ Set" if api_key else "❌ Not set — use `/setup apikey`", inline=False)
-    embed.add_field(name="⏱️ Interval", value=labels.get(interval, f"{interval} min"), inline=False)
+    embed.add_field(name="⏱️ Interval", value=f"Every {format_hours(interval_hours)}", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
