@@ -13,6 +13,9 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CONFIGS_FILE = "server_configs.json"
 SEEN_FILE = "seen_articles.json"
 
+MIN_HOURS = 5 / 60      # 5 minutes
+MAX_HOURS = 24 * 30.4   # ~1 month
+
 
 def load_configs() -> dict:
     if os.path.exists(CONFIGS_FILE):
@@ -92,16 +95,21 @@ VALID_CATEGORIES = list(CATEGORY_COLORS.keys())
 
 
 def format_hours(hours: float) -> str:
-    if hours < 1:
-        minutes = round(hours * 60)
-        return f"{minutes} minute{'s' if minutes != 1 else ''}"
-    elif hours == int(hours):
-        h = int(hours)
-        return f"{h} hour{'s' if h != 1 else ''}"
+    total_minutes = round(hours * 60)
+    if total_minutes < 60:
+        return f"{total_minutes} minute{'s' if total_minutes != 1 else ''}"
+    elif total_minutes < 1440:
+        h = total_minutes // 60
+        m = total_minutes % 60
+        if m == 0:
+            return f"{h} hour{'s' if h != 1 else ''}"
+        return f"{h}h {m}m"
     else:
-        h = int(hours)
-        minutes = round((hours - h) * 60)
-        return f"{h}h {minutes}m"
+        days = total_minutes // 1440
+        remaining_hours = (total_minutes % 1440) // 60
+        if remaining_hours == 0:
+            return f"{days} day{'s' if days != 1 else ''}"
+        return f"{days}d {remaining_hours}h"
 
 
 async def category_autocomplete(interaction: discord.Interaction, current: str):
@@ -110,6 +118,31 @@ async def category_autocomplete(interaction: discord.Interaction, current: str):
         for label, value in CATEGORIES.items()
         if current.lower() in label.lower() or current.lower() in value.lower()
     ]
+
+
+async def interval_autocomplete(interaction: discord.Interaction, current: str):
+    presets = [
+        ("⏱️ 5 minutes   (minimum)",  "0.0833"),
+        ("⏱️ 15 minutes",             "0.25"),
+        ("⏱️ 30 minutes",             "0.5"),
+        ("⏱️ 1 hour",                 "1"),
+        ("⏱️ 2 hours",                "2"),
+        ("⏱️ 6 hours",                "6"),
+        ("⏱️ 12 hours",               "12"),
+        ("⏱️ 1 day",                  "24"),
+        ("⏱️ 2 days",                 "48"),
+        ("⏱️ 1 week",                 "168"),
+        ("⏱️ 2 weeks",                "336"),
+        ("⏱️ 1 month   (maximum)",    "730"),
+    ]
+    results = []
+    for label, value in presets:
+        if current == "" or current.lower() in label.lower() or current in value:
+            results.append(discord.app_commands.Choice(name=label, value=value))
+    # Also allow typing a custom number
+    if current and current.replace(".", "", 1).isdigit():
+        results.insert(0, discord.app_commands.Choice(name=f"✏️ Custom: {current} hours", value=current))
+    return results[:25]
 
 
 async def fetch_news(api_key: str, category: str) -> list[dict]:
@@ -193,7 +226,7 @@ async def slash_help(interaction: discord.Interaction):
     embed = discord.Embed(title="📰 News Bot — Help", description="Here's everything you can do!", color=discord.Color.blurple())
     embed.add_field(name="📋 General", value="`/help` — This menu\n`/news` — Get latest news now\n`/categories` — See all news topics", inline=False)
     embed.add_field(name="⚙️ Setup (Owner Only)", value="`/setup apikey` — Set your NewsAPI key\n`/setup channel` — Set news channel\n`/setup category` — Set news topic\n`/setup status` — Check settings", inline=False)
-    embed.add_field(name="📬 Posting (Owner Only)", value="`/post now` — Post news immediately\n`/post interval` — Set auto-post frequency in hours", inline=False)
+    embed.add_field(name="📬 Posting (Owner Only)", value="`/post now` — Post news immediately\n`/post interval` — Set auto-post frequency (5 min → 1 month)", inline=False)
     embed.add_field(name="🔑 Need a NewsAPI key?", value="Get one free at https://newsapi.org/register", inline=False)
     embed.set_footer(text="Only server owners can use setup & post commands")
     await interaction.response.send_message(embed=embed)
@@ -268,24 +301,25 @@ async def post_now(interaction: discord.Interaction, category: str = None, chann
     await interaction.followup.send(f"✅ Posted **{sent}** new article(s) to {ch.mention}!", ephemeral=True)
 
 
-@post_group.command(name="interval", description="Set how often news is posted — type any number in hours (e.g. 1.5 = 1hr 30min)")
-async def post_interval(interaction: discord.Interaction, hours: float):
+@post_group.command(name="interval", description="Set how often news is posted — pick an option or type custom hours (e.g. 3.5)")
+@discord.app_commands.autocomplete(hours=interval_autocomplete)
+async def post_interval(interaction: discord.Interaction, hours: str):
     if not is_owner(interaction):
         await interaction.response.send_message("❌ Only the server owner can do this.", ephemeral=True)
         return
-    if hours < 0.083 or hours > 168:
-        await interaction.response.send_message(
-            "❌ Please enter a value between **0.083** (5 minutes) and **168** (1 week).\n"
-            "Examples: `0.5` = 30 min, `1` = 1 hour, `6` = 6 hours, `24` = 1 day",
-            ephemeral=True
-        )
+    try:
+        hours_float = float(hours)
+    except ValueError:
+        await interaction.response.send_message("❌ Please enter a valid number or pick from the dropdown.", ephemeral=True)
         return
-    set_config(interaction.guild.id, "interval_hours", hours)
-    await interaction.response.send_message(
-        f"⏱️ News will now be posted every **{format_hours(hours)}**!\n"
-        f"💡 Tip: Use decimals for custom times — e.g. `1.5` = 1hr 30min, `0.25` = 15min",
-        ephemeral=True
-    )
+    if hours_float < MIN_HOURS:
+        await interaction.response.send_message("❌ Minimum is **5 minutes**. Try `0.0833` or pick from the dropdown.", ephemeral=True)
+        return
+    if hours_float > MAX_HOURS:
+        await interaction.response.send_message("❌ Maximum is **1 month** (730 hours).", ephemeral=True)
+        return
+    set_config(interaction.guild.id, "interval_hours", hours_float)
+    await interaction.response.send_message(f"⏱️ News will now be posted every **{format_hours(hours_float)}**!", ephemeral=True)
 
 
 bot.tree.add_command(post_group)
