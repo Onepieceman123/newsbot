@@ -13,8 +13,8 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CONFIGS_FILE = "server_configs.json"
 SEEN_FILE = "seen_articles.json"
 
-MIN_HOURS = 5 / 60      # 5 minutes
-MAX_HOURS = 24 * 30.4   # ~1 month
+MIN_HOURS = 0.0833   # 5 minutes
+MAX_HOURS = 730.0    # 1 month
 
 
 def load_configs() -> dict:
@@ -122,24 +122,23 @@ async def category_autocomplete(interaction: discord.Interaction, current: str):
 
 async def interval_autocomplete(interaction: discord.Interaction, current: str):
     presets = [
-        ("⏱️ 5 minutes   (minimum)",  "0.0833"),
-        ("⏱️ 15 minutes",             "0.25"),
-        ("⏱️ 30 minutes",             "0.5"),
-        ("⏱️ 1 hour",                 "1"),
-        ("⏱️ 2 hours",                "2"),
-        ("⏱️ 6 hours",                "6"),
-        ("⏱️ 12 hours",               "12"),
-        ("⏱️ 1 day",                  "24"),
-        ("⏱️ 2 days",                 "48"),
-        ("⏱️ 1 week",                 "168"),
-        ("⏱️ 2 weeks",                "336"),
-        ("⏱️ 1 month   (maximum)",    "730"),
+        ("⏱️ 5 minutes  (minimum)", "0.0833"),
+        ("⏱️ 15 minutes",           "0.25"),
+        ("⏱️ 30 minutes",           "0.5"),
+        ("⏱️ 1 hour",               "1"),
+        ("⏱️ 2 hours",              "2"),
+        ("⏱️ 6 hours",              "6"),
+        ("⏱️ 12 hours",             "12"),
+        ("⏱️ 1 day",                "24"),
+        ("⏱️ 2 days",               "48"),
+        ("⏱️ 1 week",               "168"),
+        ("⏱️ 2 weeks",              "336"),
+        ("⏱️ 1 month  (maximum)",   "730"),
     ]
     results = []
     for label, value in presets:
         if current == "" or current.lower() in label.lower() or current in value:
             results.append(discord.app_commands.Choice(name=label, value=value))
-    # Also allow typing a custom number
     if current and current.replace(".", "", 1).isdigit():
         results.insert(0, discord.app_commands.Choice(name=f"✏️ Custom: {current} hours", value=current))
     return results[:25]
@@ -148,12 +147,16 @@ async def interval_autocomplete(interaction: discord.Interaction, current: str):
 async def fetch_news(api_key: str, category: str) -> list[dict]:
     url = "https://newsapi.org/v2/top-headlines"
     params = {"apiKey": api_key, "category": category, "language": "en", "pageSize": 10}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params) as resp:
-            if resp.status != 200:
-                return []
-            data = await resp.json()
-            return data.get("articles", [])
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                return data.get("articles", [])
+    except Exception as e:
+        print(f"[NewsAPI] fetch error: {e}")
+        return []
 
 
 def build_embed(article: dict, category: str) -> discord.Embed:
@@ -308,12 +311,12 @@ async def post_interval(interaction: discord.Interaction, hours: str):
         await interaction.response.send_message("❌ Only the server owner can do this.", ephemeral=True)
         return
     try:
-        hours_float = float(hours)
+        hours_float = round(float(hours), 4)
     except ValueError:
         await interaction.response.send_message("❌ Please enter a valid number or pick from the dropdown.", ephemeral=True)
         return
-    if hours_float < MIN_HOURS:
-        await interaction.response.send_message("❌ Minimum is **5 minutes**. Try `0.0833` or pick from the dropdown.", ephemeral=True)
+    if hours_float < MIN_HOURS - 0.001:  # small buffer to avoid floating point issues
+        await interaction.response.send_message("❌ Minimum is **5 minutes**. Pick from the dropdown or type `0.0833`.", ephemeral=True)
         return
     if hours_float > MAX_HOURS:
         await interaction.response.send_message("❌ Maximum is **1 month** (730 hours).", ephemeral=True)
