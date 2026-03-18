@@ -1,0 +1,43 @@
+# ✅ HOW TO RUN YOUR NEWS BOT
+# ============================
+
+# STEP 1 — Install Python
+# Go to https://python.org/downloads and install it.
+# ⚠️ During install, TICK "Add Python to PATH"!
+
+# STEP 2 — Open this folder in Command Prompt
+# Click the address bar at the top of this folder, type "cmd", press Enter.
+
+# STEP 3 — Install dependencies (run once only)
+#   pip install -r requirements.txt
+
+# STEP 4 — Run the bot
+#   python bot.py
+
+# You should see:
+#   [Bot] Logged in as News Bot#1234
+#   [Bot] Scheduler started — every 60 min(s)
+
+
+# ============================
+# HOW SERVER OWNERS SET UP THE BOT
+# ============================
+# Once the bot is in a server, the SERVER OWNER runs these slash commands:
+#
+#   /setup apikey YOUR_KEY     → get a free key at newsapi.org/register
+#   /setup channel #channel    → pick where news gets posted
+#   /setup category technology → pick the news topic
+#   /setup status              → check current settings
+#
+# Then anyone can use:
+#   /news                      → get latest news right now
+
+
+# ============================
+# HOW TO INVITE THE BOT TO A SERVER
+# ============================
+# 1. Go to https://discord.com/developers/applications
+# 2. Click your bot → OAuth2 → URL Generator
+# 3. Scopes: tick "bot" and "applications.commands"
+# 4. Permissions: tick "Send Messages", "Embed Links", "Read Message History"
+# 5. Copy the URL at the bottom → paste in browser → pick server → Authorise
