@@ -441,22 +441,63 @@ bot.tree.add_command(setup_group)
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
+    # Build the setup embed
+    embed = discord.Embed(
+        title="👋 Thanks for adding News Bot!",
+        description=f"Hey! Thanks for adding **News Bot** to **{guild.name}**. Here's how to get set up in 2 minutes:",
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(
+        name="Step 1 — Get a free NewsAPI key",
+        value=(
+            "1. Go to 👉 https://newsapi.org/register\n"
+            "2. Sign up for free\n"
+            "3. Copy your API key\n"
+            "4. Run this command in your server:\n"
+            "```/setup apikey YOUR_KEY_HERE```"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Step 2 — Set up your news channel",
+        value=(
+            "Run this command in your server:\n"
+            "```/post interval```\n"
+            "Then pick your **channel**, **category** and **how often** to post!"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="⚠️ Important",
+        value="Make sure News Bot has **Send Messages** and **Embed Links** permissions in the channel you choose!",
+        inline=False,
+    )
+    embed.add_field(
+        name="📋 Useful commands",
+        value=(
+            "`/help` — see all commands\n"
+            "`/categories` — see all news topics\n"
+            "`/setup status` — check your settings\n"
+            "`/support` — get help\n"
+            "`/report` — report a bug"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Need help? Run /support in your server!")
+
+    # Try to DM the server owner
+    try:
+        owner = guild.owner
+        if owner:
+            await owner.send(embed=embed)
+            print(f"[Bot] Sent setup DM to owner of {guild.name}")
+            return
+    except Exception as e:
+        print(f"[Bot] Could not DM owner of {guild.name}: {e}")
+
+    # Fallback: post in first available channel
     for channel in guild.text_channels:
         if channel.permissions_for(guild.me).send_messages:
-            embed = discord.Embed(
-                title="👋 Thanks for adding News Bot!",
-                description=(
-                    "**Quick setup — just 2 commands:**\n\n"
-                    "1️⃣ `/setup apikey YOUR_KEY`\n"
-                    "Get a free key at https://newsapi.org/register\n\n"
-                    "2️⃣ `/post interval`\n"
-                    "Pick your channel, category & frequency\n\n"
-                    "⚠️ Make sure News Bot has **Send Messages** and **Embed Links** permission in the channel!\n\n"
-                    "📋 `/help` — all commands\n"
-                    "🗂️ `/categories` — news topics"
-                ),
-                color=discord.Color.blurple(),
-            )
             await channel.send(embed=embed)
             break
 
