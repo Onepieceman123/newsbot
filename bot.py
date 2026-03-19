@@ -602,4 +602,62 @@ async def on_ready():
     print(f"[Bot] Scheduler started!")
 
 
+
+SUPPORT_USER_ID = 1400777871253045350
+
+# /support
+@bot.tree.command(name="support", description="Get help with the bot")
+async def slash_support(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🆘 Need Help?",
+        description="Here's how to get support for News Bot:",
+        color=discord.Color.blurple()
+    )
+    embed.add_field(
+        name="📋 First check these",
+        value=(
+            "• Run `/help` to see all commands
+"
+            "• Run `/setup status` to check your configuration
+"
+            "• Make sure the bot has **Send Messages** and **Embed Links** permissions in your news channel
+"
+            "• Make sure your NewsAPI key is valid (free at https://newsapi.org/register)"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🐛 Found a bug?",
+        value="Use `/report` to send a bug report directly to the developer!",
+        inline=False
+    )
+    embed.add_field(
+        name="👑 Developer",
+        value="<@1400777871253045350>",
+        inline=False
+    )
+    await interaction.response.send_message(embed=embed)
+
+
+# /report
+@bot.tree.command(name="report", description="Report a bug or issue with the bot")
+async def slash_report(interaction: discord.Interaction, issue: str):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        user = await bot.fetch_user(SUPPORT_USER_ID)
+        embed = discord.Embed(
+            title="🐛 Bug Report",
+            description=issue,
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="👤 Reported by", value=f"{interaction.user} (ID: {interaction.user.id})", inline=False)
+        embed.add_field(name="🏠 Server", value=f"{interaction.guild.name} (ID: {interaction.guild.id})", inline=False)
+        await user.send(embed=embed)
+        await interaction.followup.send("✅ Your report has been sent to the developer! Thank you.", ephemeral=True)
+    except Exception as e:
+        print(f"[Bot] Failed to send report: {e}")
+        await interaction.followup.send("❌ Failed to send report. Please try again later.", ephemeral=True)
+
+
 bot.run(DISCORD_TOKEN)
