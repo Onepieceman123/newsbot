@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 import aiohttp
 import json
 import os
+import asyncio
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
@@ -198,15 +199,21 @@ async def post_news():
                 articles = await fetch_news(api_key, category)
                 guild_seen = set(seen_articles.get(gid, []))
                 new_articles = [a for a in articles if a.get("url") and a["url"] not in guild_seen]
+                sent = 0
                 for article in new_articles[:3]:
                     await channel.send(embed=build_embed(article, category))
                     guild_seen.add(article["url"])
+                    sent += 1
+                    if sent < len(new_articles[:3]):
+                        await asyncio.sleep(1.5)  # rate limit: space out messages
                 seen_articles[gid] = list(guild_seen)[-500:]
                 save_seen(seen_articles)
                 set_config(guild.id, "last_posted", now.timestamp())
-                print(f"[Bot] {guild.name} → {len(new_articles[:3])} article(s)")
+                print(f"[Bot] {guild.name} → {sent} article(s)")
             except Exception as e:
                 print(f"[Bot] Error in guild {guild.name}: {e}")
+            # rate limit: pause briefly between guilds
+            await asyncio.sleep(1)
     except Exception as e:
         print(f"[Bot] Loop error: {e}")
 
@@ -256,8 +263,9 @@ async def slash_categories(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-# /news
+# /news — with cooldown: 1 use per 30 seconds per user
 @bot.tree.command(name="news", description="Get the latest news right now")
+@discord.app_commands.checks.cooldown(1, 30, key=lambda i: (i.guild_id, i.user.id))
 @discord.app_commands.autocomplete(category=category_autocomplete)
 async def slash_news(interaction: discord.Interaction, category: str = None):
     if interaction.guild is None:
@@ -280,6 +288,18 @@ async def slash_news(interaction: discord.Interaction, category: str = None):
             break
         await interaction.followup.send(embed=build_embed(article, cat))
         sent += 1
+        if sent < 3:
+            await asyncio.sleep(1.5)  # rate limit: space out messages
+
+
+@slash_news.error
+async def slash_news_error(interaction: discord.Interaction, error):
+    if isinstance(error, discord.app_commands.CommandOnCooldown):
+        retry = round(error.retry_after)
+        await interaction.response.send_message(
+            f"⏳ Slow down! You can use `/news` again in **{retry}s**.",
+            ephemeral=True
+        )
 
 
 # /support
@@ -441,7 +461,6 @@ bot.tree.add_command(setup_group)
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
-    # Build the setup embed
     embed = discord.Embed(
         title="👋 Thanks for adding News Bot!",
         description=f"Hey! Thanks for adding **News Bot** to **{guild.name}**. Here's how to get set up in 2 minutes:",
@@ -485,7 +504,6 @@ async def on_guild_join(guild: discord.Guild):
     )
     embed.set_footer(text="Need help? Run /support in your server!")
 
-    # Try to DM the server owner
     try:
         owner = guild.owner
         if owner:
@@ -495,7 +513,6 @@ async def on_guild_join(guild: discord.Guild):
     except Exception as e:
         print(f"[Bot] Could not DM owner of {guild.name}: {e}")
 
-    # Fallback: post in first available channel
     for channel in guild.text_channels:
         if channel.permissions_for(guild.me).send_messages:
             await channel.send(embed=embed)
